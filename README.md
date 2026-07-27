@@ -195,9 +195,12 @@ NVIDIA GPU があれば CUDA 版 PyTorch を自動選択します (`nvidia-smi` 
 エンジンを手動起動してください。
 
 macOSでHomebrewが未導入の場合は、セットアップ中に自動でインストールされます。
-macOS対応は [@emadurandal](https://github.com/emadurandal) さんのコントリビュート
-([#2](https://github.com/Kirakun0328/text-to-vrma/pull/2)) によるものです。
-開発者による動作確認はWindowsのみです (macOSの不具合報告・修正PRを歓迎します)。
+macOS対応は [@emadurandal](https://github.com/emadurandal) さん ([#2](https://github.com/Kirakun0328/text-to-vrma/pull/2))、
+Linux対応は [@mouseos](https://github.com/mouseos) さん ([#7](https://github.com/Kirakun0328/text-to-vrma/pull/7)) の
+コントリビュートによるものです。
+**開発者 (作者) が動作確認しているのはWindowsのみで、macOS / Linux は作者環境では未確認です**
+(macOS はコントリビューターが、Linux はコントリビューターが実機で動作確認しています)。
+これらの環境の不具合報告・動作報告・修正PRを歓迎します。
 
 完了後、エンジンを起動してからアプリの「ARDYローカルエンジン」モードを選択します。
 詳細・手動起動・APIは [tools/ardy-engine/README.md](tools/ardy-engine/README.md) を参照してください。
