@@ -191,7 +191,10 @@ async function callClaude(messages, apiKey, model, onDelta) {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 8192,
+      // claude-opus-5 / claude-sonnet-5 は既定でadaptive thinkingが有効で、
+      // 思考トークンも max_tokens の枠を消費する。長い複合モーションのJSONが
+      // 途中で打ち切られないよう、思考+応答の余裕を持たせて大きめに確保する
+      max_tokens: 16000,
       ...(systemMsg ? { system: systemMsg.content } : {}),
       messages: claudeMessages,
       ...(onDelta ? { stream: true } : {}),
@@ -222,17 +225,17 @@ async function callClaude(messages, apiKey, model, onDelta) {
       for (const line of lines) {
         const data = line.replace(/^data: /, '').trim();
         if (!data) continue;
+        let evt;
         try {
-          const evt = JSON.parse(data);
-          if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
-            content += evt.delta.text;
-            onDelta(content.length);
-          } else if (evt.type === 'message_delta' && evt.delta?.stop_reason === 'refusal') {
-            throw new Error('Claude が安全性の理由でリクエストを拒否しました');
-          }
-        } catch (e) {
-          if (e instanceof Error && e.message.includes('拒否')) throw e;
-          /* SSEイベント境界等のパース失敗は無視 */
+          evt = JSON.parse(data);
+        } catch {
+          continue; // SSEイベント境界等のパース失敗は無視
+        }
+        if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+          content += evt.delta.text;
+          onDelta(content.length);
+        } else if (evt.type === 'message_delta' && evt.delta?.stop_reason === 'refusal') {
+          throw new Error('Claude が安全性の理由でリクエストを拒否しました');
         }
       }
     }
