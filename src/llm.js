@@ -173,6 +173,8 @@ export const REFINE_INSTRUCTION = `以下は上記の指示で生成されたモ
 export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5';
 const CLAUDE_API_BASE = 'https://api.anthropic.com/v1';
 const CLAUDE_VERSION = '2023-06-01';
+// claude-opus-5 / claude-sonnet-5 は既定でadaptive thinkingが有効 (claude-haiku-4-5は既定オフ)
+const THINKING_MODELS = ['claude-opus-5', 'claude-sonnet-5'];
 
 async function callClaude(messages, apiKey, model, onDelta) {
   const systemMsg = messages.find((m) => m.role === 'system');
@@ -197,6 +199,12 @@ async function callClaude(messages, apiKey, model, onDelta) {
       max_tokens: 16000,
       ...(systemMsg ? { system: systemMsg.content } : {}),
       messages: claudeMessages,
+      // display を明示的に 'summarized' にしないと、thinking の既定 display は
+      // 'omitted' で thinking 中は text_delta が一切来ず、進捗バーが 0% のまま
+      // 長時間止まって見える。thinking_delta の文字数も進捗計算に使う (下記)
+      ...(THINKING_MODELS.includes(model)
+        ? { thinking: { type: 'adaptive', display: 'summarized' } }
+        : {}),
       ...(onDelta ? { stream: true } : {}),
     }),
   });
@@ -216,6 +224,9 @@ async function callClaude(messages, apiKey, model, onDelta) {
     const decoder = new TextDecoder();
     let pending = '';
     let content = '';
+    // thinking の文字数。content には含めない (JSON本体ではないため) が、
+    // 進捗バーが thinking フェーズ中も動くよう分数計算の分子には加える
+    let thinkingChars = 0;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -233,9 +244,17 @@ async function callClaude(messages, apiKey, model, onDelta) {
         }
         if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
           content += evt.delta.text;
-          onDelta(content.length);
-        } else if (evt.type === 'message_delta' && evt.delta?.stop_reason === 'refusal') {
-          throw new Error('Claude が安全性の理由でリクエストを拒否しました');
+          onDelta(content.length + thinkingChars);
+        } else if (evt.type === 'content_block_delta' && evt.delta?.type === 'thinking_delta') {
+          thinkingChars += evt.delta.thinking?.length ?? 0;
+          onDelta(content.length + thinkingChars);
+        } else if (evt.type === 'message_delta' && evt.delta?.stop_reason) {
+          if (evt.delta.stop_reason === 'refusal') {
+            throw new Error('Claude が安全性の理由でリクエストを拒否しました');
+          }
+          if (evt.delta.stop_reason === 'max_tokens') {
+            throw new Error(t('llm.claudeMaxTokens'));
+          }
         }
       }
     }
@@ -247,12 +266,16 @@ async function callClaude(messages, apiKey, model, onDelta) {
   if (data.stop_reason === 'refusal') {
     throw new Error('Claude が安全性の理由でリクエストを拒否しました');
   }
+  if (data.stop_reason === 'max_tokens') {
+    throw new Error(t('llm.claudeMaxTokens'));
+  }
   const textBlock = data.content?.find((b) => b.type === 'text');
   if (!textBlock?.text) throw new Error('Claude API から有効な応答が得られませんでした');
   return textBlock.text;
 }
 
-// Claudeは response_format のようなJSON強制モードを持たないため、
+// Claude には output_config.format (json_schema) による厳密なJSON強制モードがあるが、
+// 今回はスコープを絞り採用していない (parseJsonLenient をフォールバックとして使う)。
 // コードフェンスに包まれた場合や前後に余計な文字が付いた場合に備えて緩めにパースする
 function parseJsonLenient(text) {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
